@@ -573,11 +573,11 @@ async function generateLLMRecommendations() {
     const apiKey = "AIzaSyCLOMlRW462CPX_NTQir08vEZIo3l6zmEs"; 
     // =================================================================
 
-    if (apiKey === "AIzaSyCLOMlRW462CPX_NTQir08vEZIo3l6zmEs") {
-        llmRecommendationsDiv.innerHTML = '<p class="text-red-500 font-bold">ERRO: Chave de API não configurada.</p><p>Por favor, gere uma chave no Google AI Studio e insira no código-fonte do script para habilitar esta funcionalidade.</p>';
-        llmLoading.classList.add('hidden');
-        return;
-    }
+ //   if (apiKey === "AIzaSyCLOMlRW462CPX_NTQir08vEZIo3l6zmEs") {
+ //       llmRecommendationsDiv.innerHTML = '<p class="text-red-500 font-bold">ERRO: Chave de API não configurada.</p><p>Por favor, gere uma chave no Google AI Studio e insira no código-fonte do script para habilitar esta funcionalidade.</p>';
+  //      llmLoading.classList.add('hidden');
+ //       return;
+//    }
 
     try {
         let prompt = "Sou um estudante me preparando para o vestibular ITA/IME e preciso de uma análise do meu progresso. A sua tarefa principal é fornecer recomendações de materiais de estudo. Analise meus dados e, com foco absoluto, me diga quais tipos de livros ou materiais devo usar. Após a recomendação de materiais, identifique os conteúdos específicos que preciso melhorar.";
