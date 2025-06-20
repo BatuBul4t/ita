@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Controle - Missão ITA</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F1F5F9;
+        }
+        .card {
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            padding: 1.5rem;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 300px;
+        }
+        .accordion-button::after {
+            content: '\25BC';
+            float: right;
+            transition: transform 0.2s;
+        }
+        .accordion-button.open::after {
+            transform: rotate(180deg);
+        }
+        .sticky-sidebar {
+            position: sticky;
+            top: 1.5rem;
+            max-height: calc(100vh - 3rem);
+            overflow-y: auto;
+        }
+        dialog {
+            border: none;
+            border-radius: 0.75rem;
+            padding: 2rem;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            background-color: white;
+            max-width: 90%;
+            width: 600px;
+        }
+        dialog::backdrop {
+            background: rgba(0, 0, 0, 0.5);
+        }
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            animation: spin 1s linear infinite;
+            margin: 2rem auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="text-slate-800">
+
+    <div class="container mx-auto p-4 md:p-6">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold text-slate-900 mb-2">Dashboard de Controle: Missão ITA</h1>
+            <p class="text-lg text-slate-600">Sua central de comando para a aprovação. Edite seus dados e receba análises em tempo real.</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            <div id="control-panel">
+                <div class="card mb-6">
+                    <h2 class="text-2xl font-bold mb-4">Painel de Controle de Matérias</h2>
+                    <p class="text-slate-600 mb-6">Atualize seu progresso em cada tópico. As mudanças são salvas automaticamente.</p>
+                    
+                    <div id="subjects-accordion">
+                    </div>
+                    <div class="mt-6 text-center">
+                        <button onclick="showResetConfirmation()" class="bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 transition-colors">
+                            Resetar Todos os Dados
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2 class="text-2xl font-bold mb-4">Registro de Simulados</h2>
+                    <p class="text-slate-600 mb-6">Adicione os resultados dos seus simulados para acompanhar a evolução.</p>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="simulado-date" class="block text-sm font-medium text-slate-700">Data:</label>
+                            <input type="date" id="simulado-date" class="mt-1 block w-full p-2 border border-slate-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label for="simulado-score" class="block text-sm font-medium text-slate-700">Pontuação Geral (%):</label>
+                            <input type="number" id="simulado-score" min="0" max="100" class="mt-1 block w-full p-2 border border-slate-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label for="simulado-redacao" class="block text-sm font-medium text-slate-700">Nota Redação (0-1000):</label>
+                            <input type="number" id="simulado-redacao" min="0" max="1000" step="1" class="mt-1 block w-full p-2 border border-slate-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                        </div>
+                        <button onclick="addSimulado()" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors">
+                            Adicionar Simulado
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sticky-sidebar">
+                <div class="card mb-6">
+                    <h2 class="text-2xl font-bold mb-4">Infográfico Geral</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="chart-container">
+                            <canvas id="proficiencyChart"></canvas>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="statusDonutChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mb-6">
+                    <h2 class="text-2xl font-bold mb-4">Desempenho em Simulados</h2>
+                    <div class="chart-container">
+                        <canvas id="simulatedChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="card mb-6">
+                    <h2 class="text-2xl font-bold mb-4">Recomendações de Estudo</h2>
+                    <div id="recommendations-list" class="space-y-3">
+                    </div>
+                    <div class="mt-6 text-center">
+                        <button onclick="showLLMModal()" class="bg-purple-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-purple-700 transition-colors">
+                            Gerar Recomendações Avançadas (IA)
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2 class="text-2xl font-bold mb-4">Entendendo os Níveis de Proficiência</h2>
+                    <div class="space-y-3 text-slate-700">
+                        <p><span class="font-bold text-purple-700">Nível 1 - Básico:</span> Compreensão inicial da teoria. Consegue resolver exercícios muito simples.</p>
+                        <p><span class="font-bold text-indigo-700">Nível 2 - Intermediário:</span> Consegue resolver exercícios de dificuldade média, com alguma interpretação.</p>
+                        <p><span class="font-bold text-blue-700">Nível 3 - Avançado:</span> Domina a maioria dos conceitos e resolve exercícios desafiadores (1ª fase ITA/IME).</p>
+                        <p><span class="font-bold text-green-700">Nível 4 - Especialista:</span> Capacidade de resolver questões complexas e discursivas (2ª fase ITA/IME).</p>
+                        <p><span class="font-bold text-yellow-700">Nível 5 - Mestre:</span> Domínio completo. Capaz de resolver qualquer questão, inclusive olímpicas.</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <dialog id="resetConfirmModal" class="rounded-lg p-6 shadow-lg">
+        <h3 class="text-xl font-bold mb-4">Confirmar Reset de Dados</h3>
+        <p class="mb-6 text-slate-700">Tem certeza que deseja apagar todo o seu progresso? Esta ação não pode ser desfeita.</p>
+        <div class="flex justify-end space-x-4">
+            <button onclick="closeResetConfirmation()" class="px-4 py-2 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300 transition-colors">Cancelar</button>
+            <button onclick="confirmResetData()" class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors">Resetar</button>
+        </div>
+    </dialog>
+
+    <dialog id="llmRecomModal" class="rounded-lg p-6 shadow-lg">
+        <h3 class="text-xl font-bold mb-4 text-slate-900">Recomendações Avançadas da IA</h3>
+        <div id="llm-modal-content" class="text-slate-700 space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+            <div id="llm-loading" class="hidden">
+                <div class="loading-spinner"></div>
+                <p class="text-slate-600 mt-2 text-center">Analisando seu perfil e gerando recomendações...</p>
+            </div>
+            <div id="llm-recommendations">
+            </div>
+        </div>
+        <div class="flex justify-end mt-6">
+            <button onclick="closeLLMModal()" class="px-4 py-2 bg-slate-200 text-slate-800 rounded-md hover:bg-slate-300 transition-colors">Fechar</button>
+        </div>
+    </dialog>
+
+
+<script>
+const initialData = {
+    matematica: [
+        { id: 'mat_01', nome: 'Teoria dos Conjuntos e Funções', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'mat_02', nome: 'Função Modular', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'mat_03', nome: 'Função Exponencial e Logarítmica', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'mat_04', nome: 'Trigonometria', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'mat_05', nome: 'Números Complexos', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'mat_06', nome: 'Polinômios e Equações Polinomiais', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'mat_07', nome: 'Geometria Plana', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'mat_08', nome: 'Geometria Espacial', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'mat_09', nome: 'Geometria Analítica', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'mat_10', nome: 'Análise Combinatória', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'mat_11', nome: 'Probabilidade', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'mat_12', nome: 'Matrizes, Determinantes e Sistemas', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'mat_13', nome: 'Sequências (PA, PG)', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'mat_14', nome: 'Noções de Cálculo', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+    ],
+    fisica: [
+        { id: 'fis_01', nome: 'Cinemática', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'fis_02', nome: 'Dinâmica', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'fis_03', nome: 'Trabalho, Energia e Potência', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'fis_04', nome: 'Impulso e Quantidade de Movimento', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'fis_05', nome: 'Estática e Hidrostática', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'fis_06', nome: 'Gravitação', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'fis_07', nome: 'Termologia', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'fis_08', nome: 'Termodinâmica', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'fis_09', nome: 'Óptica Geométrica', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'fis_10', nome: 'Ondulatória e Acústica', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'fis_11', nome: 'Eletrostática', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'fis_12', nome: 'Eletrodinâmica', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'fis_13', nome: 'Eletromagnetismo', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'fis_14', nome: 'Física Moderna', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+    ],
+    quimica: [
+        { id: 'qui_01', nome: 'Estrutura Atômica e Tabela Periódica', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'qui_02', nome: 'Ligações Químicas', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'qui_03', nome: 'Funções Inorgânicas', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'qui_04', nome: 'Estequiometria', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'qui_05', nome: 'Soluções e Concentrações', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'qui_06', nome: 'Termoquímica', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'qui_07', nome: 'Cinética Química', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'qui_08', nome: 'Equilíbrio Químico e Iônico', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'qui_09', nome: 'Eletroquímica', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'qui_10', nome: 'Química Orgânica (Funções)', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'qui_11', nome: 'Reações Orgânicas', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'qui_12', nome: 'Polímeros e Bioquímica', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+    ],
+    redacao: [
+        { id: 'red_01', nome: 'Compreensão do Tema', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'red_02', nome: 'Argumentação e Estrutura', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'red_03', nome: 'Coesão e Coerência', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'red_04', nome: 'Domínio da Norma Padrão', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+        { id: 'red_05', nome: 'Estilo e Clareza', nivel: 1, feitos: 0, acertos: 0, status: 'nao_iniciado' },
+    ],
+    simulados: [] 
+};
+
+let appData = {};
+
+window.onload = function() {
+    loadData();
+    renderAll();
+};
+
+function loadData() {
+    const savedData = localStorage.getItem('missaoITAData');
+    if (savedData) {
+        const parsedData = JSON.parse(savedData);
+        appData = { ...JSON.parse(JSON.stringify(initialData)) };
+        for (const key in parsedData) {
+            if (appData[key]) {
+                if (Array.isArray(parsedData[key])) {
+                    if (key === 'simulados') {
+                        appData[key] = parsedData[key];
+                    } else {
+                        parsedData[key].forEach(savedTopic => {
+                            const initialTopicIndex = appData[key].findIndex(t => t.id === savedTopic.id);
+                            if (initialTopicIndex > -1) {
+                                appData[key][initialTopicIndex] = { ...appData[key][initialTopicIndex], ...savedTopic };
+                            }
+                        });
+                    }
+                } else {
+                    appData[key] = parsedData[key];
+                }
+            } else {
+                appData[key] = parsedData[key];
+            }
+        }
+    } else {
+        appData = JSON.parse(JSON.stringify(initialData));
+        saveData();
+    }
+}
+
+function saveData() {
+    localStorage.setItem('missaoITAData', JSON.stringify(appData));
+}
+
+function showResetConfirmation() {
+    document.getElementById('resetConfirmModal').showModal();
+}
+
+function closeResetConfirmation() {
+    document.getElementById('resetConfirmModal').close();
+}
+
+function confirmResetData() {
+    localStorage.removeItem('missaoITAData');
+    loadData();
+    renderAll();
+    closeResetConfirmation();
+}
+
+function renderAll() {
+    renderDashboard();
+    renderInfographics();
+    renderSimulatedChart();
+    renderRecommendations();
+}
+
+function updateTopic(subject, topicId, field, value) {
+    const topic = appData[subject].find(t => t.id === topicId);
+    if (topic) {
+        topic[field] = (field === 'nivel' || field === 'feitos' || field === 'acertos') ? parseInt(value) : value;
+        saveData();
+        const accuracyCell = document.getElementById(`accuracy-${topicId}`);
+        if(accuracyCell){
+            accuracyCell.textContent = calculateAccuracy(topic.feitos, topic.acertos);
+        }
+        renderInfographics();
+        renderRecommendations();
+    }
+}
+
+function calculateAccuracy(feitos, acertos) {
+    if (feitos === 0) return '0%';
+    return `${Math.round((acertos / feitos) * 100)}%`;
+}
+
+function addSimulado() {
+    const dateInput = document.getElementById('simulado-date');
+    const scoreInput = document.getElementById('simulado-score');
+    const redacaoInput = document.getElementById('simulado-redacao');
+
+    const date = dateInput.value;
+    const score = parseInt(scoreInput.value);
+    const redacao_nota = parseInt(redacaoInput.value);
+
+    if (!date || isNaN(score) || score < 0 || score > 100 || isNaN(redacao_nota) || redacao_nota < 0 || redacao_nota > 1000) {
+        alert('Por favor, preencha todos os campos do simulado com valores válidos. Pontuação Geral (0-100), Nota Redação (0-1000).');
+        return;
+    }
+
+    appData.simulados.push({ date, pontuacao: score, redacao_nota });
+    saveData();
+    renderSimulatedChart();
+    dateInput.value = '';
+    scoreInput.value = '';
+    redacaoInput.value = '';
+}
+
+function renderDashboard() {
+    const accordionContainer = document.getElementById('subjects-accordion');
+    accordionContainer.innerHTML = '';
+    
+    const subjects = {
+        matematica: "Matemática",
+        fisica: "Física",
+        quimica: "Química",
+        redacao: "Redação"
+    };
+
+    for (const subjectKey in subjects) {
+        const subjectName = subjects[subjectKey];
+        const topics = appData[subjectKey];
+
+        const sectionHTML = `
+            <div class="mb-2 border rounded-lg">
+                <button onclick="toggleSection('${subjectKey}')" class="accordion-button w-full p-4 text-left font-bold bg-slate-100 hover:bg-slate-200 transition-colors">${subjectName}</button>
+                <div id="section-${subjectKey}" class="p-4 hidden">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full text-sm">
+                            <thead class="font-bold text-left">
+                                <tr>
+                                    <th class="p-2">Tópico</th>
+                                    <th class="p-2 w-24">Nível</th>
+                                    <th class="p-2 w-24">Feitos</th>
+                                    <th class="p-2 w-24">Acertos</th>
+                                    <th class="p-2 w-24">% Acerto</th>
+                                    <th class="p-2 w-32">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${topics.map(topic => `
+                                    <tr class="border-t">
+                                        <td class="p-2 font-semibold">${topic.nome}</td>
+                                        <td class="p-2">
+                                            <select onchange="updateTopic('${subjectKey}', '${topic.id}', 'nivel', this.value)" class="w-full p-1 border rounded-md bg-white">
+                                                ${[1,2,3,4,5].map(n => `<option value="${n}" ${topic.nivel == n ? 'selected' : ''}>Nível ${n}</option>`).join('')}
+                                            </select>
+                                        </td>
+                                        <td class="p-2"><input type="number" min="0" value="${topic.feitos}" onchange="updateTopic('${subjectKey}', '${topic.id}', 'feitos', this.value)" class="w-full p-1 border rounded-md"></td>
+                                        <td class="p-2"><input type="number" min="0" value="${topic.acertos}" onchange="updateTopic('${subjectKey}', '${topic.id}', 'acertos', this.value)" class="w-full p-1 border rounded-md"></td>
+                                        <td id="accuracy-${topic.id}" class="p-2 font-bold">${calculateAccuracy(topic.feitos, topic.acertos)}</td>
+                                        <td class="p-2">
+                                            <select onchange="updateTopic('${subjectKey}', '${topic.id}', 'status', this.value)" class="w-full p-1 border rounded-md bg-white">
+                                                <option value="nao_iniciado" ${topic.status == 'nao_iniciado' ? 'selected' : ''}>Não Iniciado</option>
+                                                <option value="em_andamento" ${topic.status == 'em_andamento' ? 'selected' : ''}>Em Andamento</option>
+                                                <option value="concluido" ${topic.status == 'concluido' ? 'selected' : ''}>Concluído</option>
+                                                <option value="revisar_urgente" ${topic.status == 'revisar_urgente' ? 'selected' : ''}>Revisar Urgente</option>
+                                            </select>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+        accordionContainer.innerHTML += sectionHTML;
+    }
+}
+
+function toggleSection(subjectKey) {
+    const section = document.getElementById(`section-${subjectKey}`);
+    const button = section.previousElementSibling;
+    section.classList.toggle('hidden');
+    button.classList.toggle('open');
+}
+
+let proficiencyChartInstance, statusDonutChartInstance, simulatedChartInstance;
+
+function renderInfographics() {
+    const allTopics = [].concat(...Object.values(appData).filter(arr => Array.isArray(arr) && arr[0] && arr[0].hasOwnProperty('nivel')));
+
+    const proficiencyData = {
+        labels: ['Nível 1', 'Nível 2', 'Nível 3', 'Nível 4', 'Nível 5'],
+        datasets: [{
+            label: 'Tópicos por Nível',
+            data: [1,2,3,4,5].map(level => allTopics.filter(t => t.nivel === level).length),
+            backgroundColor: ['#A78BFA', '#818CF8', '#60A5FA', '#34D399', '#FBBF24']
+        }]
+    };
+    if (proficiencyChartInstance) proficiencyChartInstance.destroy();
+    proficiencyChartInstance = new Chart(document.getElementById('proficiencyChart'), {
+        type: 'bar',
+        data: proficiencyData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, title: { display: true, text: 'Qtd. de Tópicos'} } }
+        }
+    });
+
+    const statusData = {
+        labels: ['Não Iniciado', 'Em Andamento', 'Concluído', 'Revisar Urgente'],
+        datasets: [{
+            data: [
+                allTopics.filter(t => t.status === 'nao_iniciado').length,
+                allTopics.filter(t => t.status === 'em_andamento').length,
+                allTopics.filter(t => t.status === 'concluido').length,
+                allTopics.filter(t => t.status === 'revisar_urgente').length,
+            ],
+            backgroundColor: ['#94A3B8', '#F59E0B', '#10B981', '#EF4444']
+        }]
+    };
+    if (statusDonutChartInstance) statusDonutChartInstance.destroy();
+    statusDonutChartInstance = new Chart(document.getElementById('statusDonutChart'), {
+        type: 'doughnut',
+        data: statusData,
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+    });
+}
+
+function renderSimulatedChart() {
+    const simulatedScores = appData.simulados.sort((a, b) => new Date(a.date) - new Date(b.date));
+    const labels = simulatedScores.map(s => new Date(s.date).toLocaleDateString('pt-BR', {timeZone: 'UTC'}));
+    const pontuacaoData = simulatedScores.map(s => s.pontuacao);
+    const redacaoData = simulatedScores.map(s => s.redacao_nota / 10); 
+
+    const simulatedChartData = {
+        labels: labels,
+        datasets: [
+            {
+                label: 'Pontuação Geral (%)',
+                data: pontuacaoData,
+                borderColor: '#3B82F6',
+                backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                tension: 0.3,
+                fill: false
+            },
+            {
+                label: 'Nota Redação (Escala 0-100)',
+                data: redacaoData,
+                borderColor: '#F97316',
+                backgroundColor: 'rgba(249, 115, 22, 0.2)',
+                tension: 0.3,
+                fill: false
+            }
+        ]
+    };
+
+    if (simulatedChartInstance) simulatedChartInstance.destroy();
+    simulatedChartInstance = new Chart(document.getElementById('simulatedChart'), {
+        type: 'line',
+        data: simulatedChartData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' }, title: { display: true, text: 'Evolução do Desempenho em Simulados' } },
+            scales: {
+                y: { beginAtZero: true, max: 100, title: { display: true, text: 'Pontuação / Nota' } },
+                x: { title: { display: true, text: 'Data do Simulado' } }
+            }
+        }
+    });
+}
+
+function renderRecommendations() {
+    const list = document.getElementById('recommendations-list');
+    list.innerHTML = '';
+    const recommendations = [];
+    const allTopics = [].concat(...Object.values(appData).filter(arr => Array.isArray(arr) && arr[0] && arr[0].hasOwnProperty('nivel')));
+
+    allTopics.filter(t => t.status === 'revisar_urgente').forEach(t => {
+        recommendations.push({
+            priority: 1,
+            html: `<li><span class="font-bold text-red-600">REVISÃO URGENTE:</span> Foco total em <strong>${t.nome}</strong>. Revise a teoria e refaça exercícios de fixação.</li>`
+        });
+    });
+
+    allTopics.filter(t => t.status === 'em_andamento' && t.feitos > 5 && (t.acertos / t.feitos) < 0.6).forEach(t => {
+        recommendations.push({
+            priority: 2,
+            html: `<li><span class="font-bold text-orange-500">PONTO DE ATENÇÃO:</span> Seu aproveitamento em <strong>${t.nome}</strong> está baixo (${calculateAccuracy(t.feitos, t.acertos)}). Volte para a teoria.</li>`
+        });
+    });
+
+    allTopics.filter(t => t.status === 'concluido' && t.nivel < 4 && (t.acertos / t.feitos) >= 0.8).forEach(t => {
+        recommendations.push({
+            priority: 3,
+            html: `<li><span class="font-bold text-green-600">AVANÇAR NÍVEL:</span> Você domina o básico de <strong>${t.nome}</strong>. Procure listas de aprofundamento para atingir o Nível ${t.nivel + 1}.</li>`
+        });
+    });
+    
+    const firstNotStarted = allTopics.find(t => t.status === 'nao_iniciado');
+    if(firstNotStarted){
+        recommendations.push({
+            priority: 4,
+            html: `<li><span class="font-bold text-blue-600">PRÓXIMO PASSO:</span> Hora de começar um novo desafio. Inicie os estudos em <strong>${firstNotStarted.nome}</strong>.</li>`
+        });
+    }
+
+    if (recommendations.length > 0) {
+        recommendations.sort((a,b) => a.priority - b.priority).slice(0, 5).forEach(rec => {
+            list.innerHTML += rec.html;
+        });
+    } else {
+        list.innerHTML = '<li><span class="font-bold text-green-600">Tudo em ordem!</span> Continue com seu plano de estudos e mantenha a consistência.</li>';
+    }
+}
+
+function showLLMModal() {
+    const modal = document.getElementById('llmRecomModal');
+    const llmRecommendationsDiv = document.getElementById('llm-recommendations');
+    const llmLoading = document.getElementById('llm-loading');
+    
+    llmRecommendationsDiv.innerHTML = '';
+    llmLoading.classList.remove('hidden');
+    modal.showModal();
+    generateLLMRecommendations();
+}
+
+function closeLLMModal() {
+    document.getElementById('llmRecomModal').close();
+}
+
+async function generateLLMRecommendations() {
+    const llmLoading = document.getElementById('llm-loading');
+    const llmRecommendationsDiv = document.getElementById('llm-recommendations');
+    
+    // =================================================================
+    //         !!!   COLE SUA CHAVE DE API DO GOOGLE AI STUDIO AQUI   !!!
+    // =================================================================
+    const apiKey = "AIzaSyCJkt3Of0IX5DJoZwOxLeb2TfPiKERfY8E"; 
+    // =================================================================
+
+    if (apiKey === "AIzaSyCJkt3Of0IX5DJoZwOxLeb2TfPiKERfY8E") {
+        llmRecommendationsDiv.innerHTML = '<p class="text-red-500 font-bold">ERRO: Chave de API não configurada.</p><p>Por favor, gere uma chave no Google AI Studio e insira no código-fonte do script para habilitar esta funcionalidade.</p>';
+        llmLoading.classList.add('hidden');
+        return;
+    }
+
+    try {
+        let prompt = "Sou um estudante me preparando para o vestibular ITA/IME e preciso de uma análise do meu progresso. A sua tarefa principal é fornecer recomendações de materiais de estudo. Analise meus dados e, com foco absoluto, me diga quais tipos de livros ou materiais devo usar. Após a recomendação de materiais, identifique os conteúdos específicos que preciso melhorar.";
+        prompt += "\n\nMeus dados de progresso por tópico:\n";
+
+        for (const subjectKey in appData) {
+            if (Array.isArray(appData[subjectKey]) && appData[subjectKey][0] && appData[subjectKey][0].hasOwnProperty('nivel')) {
+                const subjectName = subjectKey.charAt(0).toUpperCase() + subjectKey.slice(1);
+                prompt += `\nMatéria: ${subjectName}\n`;
+                appData[subjectKey].forEach(topic => {
+                    const accuracy = calculateAccuracy(topic.feitos, topic.acertos);
+                    prompt += `- Tópico: ${topic.nome}, Nível de Proficiência Atual: ${topic.nivel}, Exercícios Feitos: ${topic.feitos}, Acertos: ${topic.acertos} (Aproveitamento: ${accuracy}), Status do Estudo: ${topic.status}\n`;
+                });
+            }
+        }
+
+        if (appData.simulados && appData.simulados.length > 0) {
+            prompt += "\nMeus resultados em simulados recentes são (últimos 5):\n";
+            appData.simulados.slice(-5).forEach(sim => {
+                prompt += `- Data: ${sim.date}, Pontuação Geral: ${sim.pontuacao}%, Nota Redação: ${sim.redacao_nota}/1000\n`;
+            });
+        }
+
+        prompt += "\nCom base nestes dados, gere uma resposta seguindo estritamente esta estrutura:";
+        prompt += "\n1. RECOMENDAÇÃO DE MATERIAIS DE ESTUDO: Dê foco total aqui. Para os tópicos com baixo desempenho ou prontos para avanço de nível, recomende os tipos de livros ou materiais ideais (ex: 'Para Geometria, busque livros de coleções peruanas', 'Para Eletromagnetismo, use livros didáticos de física para nível superior', 'Para aprofundar em Polinômios, resolva provas antigas do IME e de olimpíadas de matemática'). Seja específico sobre o tipo de material para cada área de conhecimento.";
+        prompt += "\n2. CONTEÚDO A MELHORAR: Liste os tópicos que mais precisam de atenção, baseando-se em status 'revisar urgente', baixo aproveitamento ou baixo nível de proficiência. Sugira ações claras (ex: 'revisar teoria de...', 'praticar mais exercícios de...').";
+        prompt += "\n3. ANÁLISE GERAL: Faça um breve parágrafo sobre o perfil geral do estudante, destacando pontos fortes e fracos gerais.";
+        prompt += "\nFORMATAÇÃO: Use apenas texto simples e quebras de linha para separar os itens. NÃO use markdown como negrito ou marcadores de lista (-, *).";
+        
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+        const payload = {
+            contents: [{
+                parts: [{
+                    text: prompt
+                }]
+            }]
+        };
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        if (!response.ok) {
+            const errorBody = await response.json();
+            console.error('Erro na resposta da API:', errorBody);
+            throw new Error(`Erro HTTP! Status: ${response.status}. Detalhes: ${errorBody.error.message}`);
+        }
+        
+        const result = await response.json();
+
+        if (result.candidates && result.candidates[0] && result.candidates[0].content && result.candidates[0].content.parts[0]) {
+            let text = result.candidates[0].content.parts[0].text;
+            // Melhora a formatação para exibição em HTML
+            text = text.replace(/\n/g, '<br>');
+            text = text.replace(/(RECOMENDAÇÃO DE MATERIAIS DE ESTUDO:|CONTEÚDO A MELHORAR:|ANÁLISE GERAL:)/g, '<strong>$1</strong>');
+            llmRecommendationsDiv.innerHTML = `<p>${text}</p>`;
+        } else {
+             console.error("Resposta da IA em formato inesperado:", result);
+            llmRecommendationsDiv.innerHTML = '<p class="text-red-500">Não foi possível obter uma recomendação da IA. O formato da resposta pode ter sido inválido. Tente novamente.</p>';
+        }
+
+    } catch (error) {
+        console.error('Erro ao chamar a API do Gemini:', error);
+        llmRecommendationsDiv.innerHTML = `<p class="text-red-500">Erro ao se conectar com a IA para gerar recomendações. Verifique sua conexão ou tente novamente mais tarde. Detalhe do erro: ${error.message}</p>`;
+    } finally {
+        llmLoading.classList.add('hidden');
+    }
+}
+</script>
+
+</body>
+</html>
