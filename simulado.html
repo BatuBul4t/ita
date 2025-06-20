@@ -1,0 +1,683 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Chart, registerables } from 'chart.js';
+Chart.register(...registerables);
+
+// --- Ícones SVG ---
+const TargetIcon = (props) => (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="6" /><circle cx="12" cy="12" r="2" />
+    </svg>
+);
+const BrainCircuitIcon = (props) => (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5a3 3 0 1 0-5.993.142"/><path d="M12 5a3 3 0 1 1 5.993.142"/><path d="M5 8.5A3.5 3.5 0 0 0 8.5 12H12"/><path d="M19 8.5A3.5 3.5 0 0 1 15.5 12H12"/><path d="M12 12v1.5"/><path d="M12 18a3 3 0 1 1-5.993-.142"/><path d="M12 18a3 3 0 1 0 5.993-.142"/><path d="M5 15.5A3.5 3.5 0 0 1 8.5 12H12"/><path d="M19 15.5A3.5 3.5 0 0 0 15.5 12H12"/><path d="m15 5 1-1"/><path d="m9 5-1-1"/><path d="m15 19 1 1"/><path d="m9 19-1 1"/><path d="M12 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/><path d="M12 12a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg>
+);
+
+// --- Módulo da API Gemini ---
+// Centraliza todas as chamadas para a IA
+const GeminiAPI = {
+    generateSimulado: async (setLoadingMessage) => {
+        setLoadingMessage('Criando prompt para a banca examinadora da IA...');
+        const prompt = `
+            Você é um especialista sênior na criação de provas para os vestibulares do ITA e IME. Sua tarefa é gerar um simulado completo, original e desafiador.
+            
+            REGRAS ESTRITAS:
+            1.  O simulado deve conter EXATAMENTE 180 questões de múltipla escolha.
+            2.  A distribuição deve ser: 36 de Matemática, 36 de Física, 36 de Química, 36 de Português e 36 de Inglês.
+            3.  As questões devem ter o estilo, profundidade e complexidade das provas do ITA e IME, exigindo raciocínio e conhecimento aprofundado, não apenas memorização.
+            4.  Para cada questão, forneça um enunciado claro, 5 alternativas (A, B, C, D, E), a letra da alternativa correta e uma resolução detalhada e pedagógica.
+            
+            FORMATO DA RESPOSTA:
+            Sua resposta DEVE ser um objeto JSON válido, contendo uma única chave "questoes" que é um array de 180 objetos.
+            NÃO inclua sua resposta em blocos de código markdown (\`\`\`json). Apenas o JSON puro e válido.
+        `;
+
+        const schema = {
+            type: "OBJECT",
+            properties: {
+                questoes: {
+                    type: "ARRAY",
+                    items: {
+                        type: "OBJECT",
+                        properties: {
+                            id: { type: "STRING" },
+                            materia: { type: "STRING" },
+                            topico: { type: "STRING" },
+                            enunciado: { type: "STRING" },
+                            alternativas: {
+                                type: "ARRAY",
+                                items: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        letra: { type: "STRING" },
+                                        texto: { type: "STRING" }
+                                    },
+                                    required: ["letra", "texto"]
+                                }
+                            },
+                            resposta_correta: { type: "STRING" },
+                            resolucao_detalhada: { type: "STRING" }
+                        },
+                        required: ["id", "materia", "topico", "enunciado", "alternativas", "resposta_correta", "resolucao_detalhada"]
+                    }
+                }
+            },
+            required: ["questoes"]
+        };
+        
+        setLoadingMessage('A IA está gerando 180 questões... Isso pode levar alguns minutos.');
+        const apiKey = "AIzaSyCJkt3Of0IX5DJoZwOxLeb2TfPiKERfY8E"; // Será injetada em tempo de execução
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: schema
+                    }
+                })
+            });
+
+            if (!response.ok) throw new Error(`Erro HTTP! Status: ${response.status}`);
+            
+            const result = await response.json();
+            
+            if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
+                const jsonText = result.candidates[0].content.parts[0].text;
+                const parsedJson = JSON.parse(jsonText);
+                if (parsedJson.questoes && parsedJson.questoes.length > 0) {
+                   setLoadingMessage('Questões recebidas. Finalizando a montagem da prova.');
+                   return parsedJson.questoes;
+                }
+            }
+            throw new Error("A IA não retornou questões no formato esperado.");
+        } catch (error) {
+            console.error("Erro ao gerar simulado:", error);
+            throw error;
+        }
+    },
+
+    analyzeRedacao: async (tema, textoRedacao) => {
+        const prompt = `
+            Você é um corretor de redações experiente, especializado em vestibulares de alto nível como ITA e IME.
+            
+            TAREFA:
+            Analise a seguinte redação para o tema "${tema}".
+            
+            REDAÇÃO DO ALUNO:
+            "${textoRedacao}"
+
+            AVALIAÇÃO ESTRITA:
+            Avalie o texto de 0 a 1000 pontos, distribuídos em 5 competências (200 pontos cada):
+            1. Domínio da norma culta da língua escrita.
+            2. Compreensão da proposta de redação e aplicação de conceitos das várias áreas de conhecimento para desenvolver o tema.
+            3. Selecionar, relacionar, organizar e interpretar informações, fatos, opiniões e argumentos em defesa de um ponto de vista.
+            4. Demonstração de conhecimento dos mecanismos linguísticos necessários para a construção da argumentação.
+            5. Elaboração de proposta de intervenção para o problema abordado, respeitando os direitos humanos.
+            
+            FORMATO DA RESPOSTA:
+            Sua resposta DEVE ser um objeto JSON válido e puro, sem blocos de código markdown.
+        `;
+
+        const schema = {
+            type: "OBJECT",
+            properties: {
+                nota_total: { type: "NUMBER" },
+                analise_geral: { type: "STRING" },
+                feedback_por_competencia: {
+                    type: "ARRAY",
+                    items: {
+                        type: "OBJECT",
+                        properties: {
+                            competencia: { type: "STRING" },
+                            nota: { type: "NUMBER" },
+                            feedback: { type: "STRING" },
+                        },
+                        required: ["competencia", "nota", "feedback"]
+                    }
+                }
+            },
+            required: ["nota_total", "analise_geral", "feedback_por_competencia"]
+        };
+        
+        const apiKey = "";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+        
+        try {
+            const response = await fetch(apiUrl, {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({
+                     contents: [{ parts: [{ text: prompt }] }],
+                     generationConfig: {
+                         responseMimeType: "application/json",
+                         responseSchema: schema
+                     }
+                 })
+            });
+            if (!response.ok) throw new Error(`Erro HTTP! Status: ${response.status}`);
+            const result = await response.json();
+             if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
+                const jsonText = result.candidates[0].content.parts[0].text;
+                return JSON.parse(jsonText);
+            }
+            throw new Error("A IA não retornou a análise da redação no formato esperado.");
+        } catch (error) {
+            console.error("Erro ao analisar redação:", error);
+            throw error;
+        }
+    },
+};
+
+// --- Componente Modal ---
+const Modal = ({ isOpen, onClose, title, children }) => {
+    if (!isOpen) return null;
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-60 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+                <div className="p-6 border-b">
+                    <h3 className="text-xl font-bold text-gray-800">{title}</h3>
+                </div>
+                <div className="p-6 overflow-y-auto">
+                    {children}
+                </div>
+                <div className="p-4 bg-gray-50 border-t flex justify-end">
+                    <button onClick={onClose} className="px-6 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors">Fechar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// --- Componente Tela de Resultados (com Análise de Redação) ---
+const TelaResultados = ({ resultados, onRestart, temaRedacao, textoRedacao }) => {
+    const [acertos, total] = useMemo(() => {
+        const totalAcertos = Object.values(resultados.desempenhoPorMateria).reduce((acc, m) => acc + m.acertos, 0);
+        const totalQuestoes = Object.values(resultados.desempenhoPorMateria).reduce((acc, m) => acc + m.total, 0);
+        return [totalAcertos, totalQuestoes];
+    }, [resultados]);
+    
+    const [selectedResolucao, setSelectedResolucao] = useState(null);
+    const [analiseRedacao, setAnaliseRedacao] = useState(null);
+    const [isAnalysing, setIsAnalysing] = useState(false);
+    const [analiseError, setAnaliseError] = useState(null);
+
+    const handleAnalisarRedacao = async () => {
+        setIsAnalysing(true);
+        setAnaliseError(null);
+        try {
+            const result = await GeminiAPI.analyzeRedacao(temaRedacao, textoRedacao);
+            setAnaliseRedacao(result);
+        } catch (error) {
+            setAnaliseError("Houve um erro ao analisar a redação. Tente novamente.");
+        } finally {
+            setIsAnalysing(false);
+        }
+    };
+
+    return (
+        <div className="p-4 md:p-8 bg-gray-50 min-h-screen">
+             <style>{`.card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); }`}</style>
+            <div className="max-w-7xl mx-auto">
+                <h1 className="text-3xl font-bold text-gray-800 mb-2">Resultados do Simulado</h1>
+                <p className="text-gray-600 mb-6">Aqui está a análise detalhada do seu desempenho.</p>
+
+                {/* Cards de Desempenho */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div className="card p-6 flex flex-col items-center justify-center text-center">
+                        <h3 className="text-lg font-semibold text-gray-500">Nota Final</h3>
+                        <p className="text-5xl font-bold text-blue-600 mt-2">{acertos}</p>
+                        <p className="text-gray-500">de {total} questões</p>
+                    </div>
+                    <div className="card p-6 flex flex-col items-center justify-center text-center">
+                        <h3 className="text-lg font-semibold text-gray-500">Aproveitamento</h3>
+                        <p className="text-5xl font-bold text-blue-600 mt-2">{((acertos / total) * 100).toFixed(1)}%</p>
+                        <p className="text-gray-500">de acertos</p>
+                    </div>
+                    <div className="card p-6 col-span-1 md:col-span-2 lg:col-span-2">
+                        <h3 className="text-xl font-bold text-gray-800 mb-4">Desempenho por Matéria</h3>
+                        <div className="space-y-3">
+                            {Object.entries(resultados.desempenhoPorMateria).map(([materia, data]) => (
+                                <div key={materia}>
+                                    <div className="flex justify-between mb-1">
+                                        <span className="text-base font-medium text-gray-700">{materia}</span>
+                                        <span className="text-sm font-medium text-gray-700">{data.acertos} / {data.total}</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-2.5">
+                                        <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${(data.acertos / data.total) * 100}%` }}></div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Seção da Redação */}
+                <div className="card p-6 mb-8">
+                    <h3 className="text-xl font-bold text-gray-800 mb-4">Análise da Redação</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                           <h4 className="font-semibold text-gray-700">Seu Texto:</h4>
+                           <div className="mt-2 p-4 bg-gray-50 border rounded-md max-h-80 overflow-y-auto text-gray-600 whitespace-pre-wrap">
+                             {textoRedacao || "Nenhuma redação foi submetida."}
+                           </div>
+                        </div>
+                        <div>
+                           <h4 className="font-semibold text-gray-700">Avaliação da IA:</h4>
+                           {!analiseRedacao && (
+                               <div className="mt-2 p-4 border-2 border-dashed rounded-md text-center">
+                                   <p className="text-gray-500 mb-4">Sua redação ainda não foi analisada.</p>
+                                   <button onClick={handleAnalisarRedacao} disabled={isAnalysing || !textoRedacao}
+                                       className="bg-purple-600 text-white font-bold py-2 px-6 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                       {isAnalysing ? 'Analisando...' : 'Analisar com IA'}
+                                   </button>
+                                   {analiseError && <p className="text-red-500 text-sm mt-2">{analiseError}</p>}
+                               </div>
+                           )}
+                           {analiseRedacao && (
+                               <div className="mt-2 space-y-4">
+                                   <div className="p-4 bg-purple-50 rounded-lg text-center">
+                                      <p className="text-purple-800 font-semibold">Nota Total</p>
+                                      <p className="text-4xl font-bold text-purple-700">{analiseRedacao.nota_total}</p>
+                                   </div>
+                                    <p className="text-gray-600 text-sm">{analiseRedacao.analise_geral}</p>
+                                    {analiseRedacao.feedback_por_competencia.map(c => (
+                                        <div key={c.competencia} className="p-3 bg-gray-50 border rounded-md">
+                                            <p className="font-semibold text-sm text-gray-800">{c.competencia} ({c.nota}/200)</p>
+                                            <p className="text-xs text-gray-600 mt-1">{c.feedback}</p>
+                                        </div>
+                                    ))}
+                               </div>
+                           )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Gabarito */}
+                <div className="card mt-6 p-6">
+                    <h3 className="text-xl font-bold text-gray-800 mb-4">Gabarito e Resoluções</h3>
+                    <div className="space-y-2">
+                        {resultados.questoes.map((q, index) => (
+                            <div key={q.id} className="p-3 border rounded-lg bg-white">
+                                <div className="flex justify-between items-center cursor-pointer" onClick={() => setSelectedResolucao(selectedResolucao === q.id ? null : q.id)}>
+                                    <p className="font-medium">Questão {index + 1} ({q.materia})</p>
+                                    <div className="flex items-center gap-4">
+                                        <span className={`px-3 py-1 text-xs font-semibold rounded-full ${resultados.respostas[q.id] === q.resposta_correta ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                            Sua Resposta: {resultados.respostas[q.id] || 'N/A'} | Gabarito: {q.resposta_correta}
+                                        </span>
+                                        <span className="text-sm text-blue-600 hover:underline">{selectedResolucao === q.id ? 'Ocultar' : 'Ver'} Resolução</span>
+                                    </div>
+                                </div>
+                                {selectedResolucao === q.id && (
+                                    <div className="mt-4 p-4 bg-gray-50 rounded-md border text-gray-600 animate-fade-in">
+                                        <p className="font-semibold mb-2">Enunciado:</p>
+                                        <p className="mb-4 text-sm">{q.enunciado}</p>
+                                        <p className="font-semibold mb-2">Resolução Detalhada:</p>
+                                        <p className="text-sm whitespace-pre-line">{q.resolucao_detalhada}</p>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="mt-8 text-center">
+                    <button onClick={onRestart} className="bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 transition-colors">
+                        Voltar à Tela Inicial
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// --- Componente Principal do Simulado ---
+const TelaSimulado = ({ questoes, onFinish }) => {
+    const TEMPO_TOTAL = 4 * 60 * 60; // 4 horas em segundos
+    const [questaoAtual, setQuestaoAtual] = useState(0);
+    const [respostas, setRespostas] = useState({});
+    const [tempoRestante, setTempoRestante] = useState(TEMPO_TOTAL);
+    const [textoRedacao, setTextoRedacao] = useState("");
+    const [abaAtiva, setAbaAtiva] = useState('questoes'); // 'questoes' ou 'redacao'
+    const [showConfirmModal, setShowConfirmModal] = useState(false);
+    const temaRedacao = "O papel da tecnologia na superação das desigualdades sociais no Brasil do século XXI.";
+    
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setTempoRestante(prev => {
+                if (prev <= 1) {
+                    clearInterval(timer);
+                    handleFinish(true); // Finaliza automaticamente
+                    return 0;
+                }
+                return prev - 1;
+            });
+        }, 1000);
+        return () => clearInterval(timer);
+    }, []);
+
+    const formatarTempo = (segundos) => {
+        const h = Math.floor(segundos / 3600).toString().padStart(2, '0');
+        const m = Math.floor((segundos % 3600) / 60).toString().padStart(2, '0');
+        const s = (segundos % 60).toString().padStart(2, '0');
+        return `${h}:${m}:${s}`;
+    };
+
+    const selecionarResposta = (idQuestao, alternativa) => {
+        setRespostas(prev => ({ ...prev, [idQuestao]: alternativa }));
+    };
+
+    const handleFinish = (autoSubmit = false) => {
+        const finishAction = () => {
+            const desempenhoPorMateria = {};
+            questoes.forEach(q => {
+                if (!desempenhoPorMateria[q.materia]) {
+                    desempenhoPorMateria[q.materia] = { acertos: 0, total: 0 };
+                }
+                desempenhoPorMateria[q.materia].total++;
+                if (respostas[q.id] === q.resposta_correta) {
+                    desempenhoPorMateria[q.materia].acertos++;
+                }
+            });
+            onFinish({ respostas, questoes, desempenhoPorMateria, textoRedacao, temaRedacao });
+        };
+        
+        if (autoSubmit) {
+            finishAction();
+        } else {
+            setShowConfirmModal(true);
+        }
+    };
+
+    const confirmFinish = () => {
+         const desempenhoPorMateria = {};
+            questoes.forEach(q => {
+                if (!desempenhoPorMateria[q.materia]) {
+                    desempenhoPorMateria[q.materia] = { acertos: 0, total: 0 };
+                }
+                desempenhoPorMateria[q.materia].total++;
+                if (respostas[q.id] === q.resposta_correta) {
+                    desempenhoPorMateria[q.materia].acertos++;
+                }
+            });
+        onFinish({ respostas, questoes, desempenhoPorMateria, textoRedacao, temaRedacao });
+        setShowConfirmModal(false);
+    };
+
+    const q = questoes[questaoAtual];
+
+    return (
+        <div className="flex h-screen bg-gray-100 font-sans">
+             <Modal isOpen={showConfirmModal} onClose={() => setShowConfirmModal(false)} title="Confirmar Finalização">
+                <p className="text-gray-700">Tem certeza que deseja finalizar a prova? Suas respostas e sua redação serão enviadas para correção e você não poderá alterá-las.</p>
+                <div className="flex justify-end gap-4 mt-6">
+                    <button onClick={() => setShowConfirmModal(false)} className="px-6 py-2 rounded-lg bg-gray-200 hover:bg-gray-300">Cancelar</button>
+                    <button onClick={confirmFinish} className="px-6 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700">Confirmar e Entregar</button>
+                </div>
+            </Modal>
+
+            <div className="w-3/4 p-6 flex flex-col">
+                <div className="flex-grow flex flex-col bg-white rounded-xl shadow-lg">
+                    {/* Abas Questões/Redação */}
+                    <div className="flex border-b">
+                       <button onClick={() => setAbaAtiva('questoes')} className={`px-6 py-3 font-semibold ${abaAtiva === 'questoes' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>Questões</button>
+                       <button onClick={() => setAbaAtiva('redacao')} className={`px-6 py-3 font-semibold ${abaAtiva === 'redacao' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>Redação</button>
+                    </div>
+
+                    {/* Conteúdo da Aba */}
+                    <div className="p-8 flex-grow flex flex-col overflow-y-hidden">
+                        {abaAtiva === 'questoes' && q && (
+                            <>
+                                <div className="flex justify-between items-center mb-4">
+                                    <span className="text-sm font-semibold text-blue-700 bg-blue-100 px-3 py-1 rounded-full">{q.materia} - {q.topico}</span>
+                                    <span className="text-sm text-gray-500">Questão {questaoAtual + 1} de {questoes.length}</span>
+                                </div>
+                                <div className="overflow-y-auto flex-grow pr-4">
+                                    <h2 className="text-lg text-gray-800 mb-6 whitespace-pre-line">{q.enunciado}</h2>
+                                    <div className="space-y-3">
+                                        {q.alternativas.map(alt => (
+                                            <button key={alt.letra} onClick={() => selecionarResposta(q.id, alt.letra)}
+                                                className={`w-full text-left p-4 border rounded-lg transition-all duration-200 flex items-center ${respostas[q.id] === alt.letra ? 'bg-blue-600 border-blue-600 text-white shadow-md' : 'bg-white hover:bg-gray-50'}`}>
+                                                <span className={`font-bold mr-4 px-2 py-1 border rounded-md ${respostas[q.id] === alt.letra ? 'border-white' : 'border-gray-300'}`}>{alt.letra}</span>
+                                                <span>{alt.texto}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                        {abaAtiva === 'redacao' && (
+                             <div className="flex-grow flex flex-col">
+                                <h2 className="text-xl font-bold text-gray-800">Proposta de Redação</h2>
+                                <div className="my-4 p-4 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800 rounded-r-lg">
+                                    <p className="font-semibold">Tema:</p>
+                                    <p>{temaRedacao}</p>
+                                </div>
+                                <textarea
+                                    value={textoRedacao}
+                                    onChange={(e) => setTextoRedacao(e.target.value)}
+                                    placeholder="Comece a escrever sua redação aqui..."
+                                    className="w-full flex-grow p-4 border rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                ></textarea>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Navegação Anterior/Próxima */}
+                     {abaAtiva === 'questoes' && (
+                        <div className="flex justify-between items-center mt-auto p-6 pt-4 border-t">
+                            <button onClick={() => setQuestaoAtual(p => Math.max(0, p - 1))} disabled={questaoAtual === 0} className="px-6 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">Anterior</button>
+                            <button onClick={() => setQuestaoAtual(p => Math.min(questoes.length - 1, p + 1))} disabled={questaoAtual === questoes.length - 1} className="px-6 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed">Próxima</button>
+                        </div>
+                     )}
+                </div>
+            </div>
+
+            {/* Barra Lateral Direita */}
+            <div className="w-1/4 bg-white border-l p-6 flex flex-col">
+                 <h3 className="text-xl font-bold text-center text-gray-800">Missão ITA/IME</h3>
+                 <div className="text-center my-4 p-3 bg-gray-800 text-white rounded-lg shadow-inner">
+                    <p className="text-sm opacity-80">Tempo Restante</p>
+                    <p className={`text-4xl font-mono tracking-widest ${tempoRestante < 300 ? 'text-red-500 animate-pulse' : ''}`}>{formatarTempo(tempoRestante)}</p>
+                 </div>
+                 <h4 className="font-semibold mb-3 mt-2 text-gray-700">Navegação</h4>
+                 <div className="grid grid-cols-6 gap-2 flex-grow overflow-y-auto pr-2">
+                    {questoes.map((_, index) => (
+                        <button key={index} onClick={() => {setQuestaoAtual(index); setAbaAtiva('questoes');}} className={`h-10 w-10 rounded flex items-center justify-center font-medium transition-colors duration-200
+                          ${index === questaoAtual && abaAtiva === 'questoes' ? 'bg-blue-600 text-white' : respostas[questoes[index].id] ? 'bg-green-200 text-green-800' : 'bg-gray-200 hover:bg-gray-300'}`}>
+                            {index + 1}
+                        </button>
+                    ))}
+                 </div>
+                 <button onClick={() => handleFinish(false)} className="w-full mt-6 bg-red-600 text-white font-bold py-3 rounded-lg hover:bg-red-700 transition-colors">
+                    Finalizar e Entregar Prova
+                 </button>
+            </div>
+        </div>
+    );
+};
+
+// --- Componente da Tela Inicial do Simulador ---
+const TelaInicialSimulador = ({ onStart }) => {
+    const [isLoading, setIsLoading] = useState(false);
+    const [loadingMessage, setLoadingMessage] = useState('');
+    const [error, setError] = useState(null);
+
+    const handleStart = async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const questoesGeradas = await GeminiAPI.generateSimulado(setLoadingMessage);
+            onStart(questoesGeradas);
+        } catch (err) {
+            setError('Falha ao gerar o simulado. A IA pode estar sobrecarregada ou houve um erro de conexão. Por favor, tente novamente em alguns instantes.');
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
+            <div className="w-full max-w-3xl bg-white rounded-2xl shadow-xl p-8 md:p-12 text-center">
+                 <BrainCircuitIcon className="mx-auto h-16 w-16 text-blue-500 mb-4" />
+                 <h1 className="text-4xl font-extrabold tracking-tight text-gray-900 mb-4">Simulador Inteligente ITA/IME</h1>
+                 <p className="text-lg text-gray-600 mb-8 max-w-xl mx-auto">
+                     Clique no botão abaixo para que nossa IA crie um simulado com 180 questões inéditas, no nível exato do seu desafio.
+                 </p>
+                 
+                 {!isLoading ? (
+                     <>
+                        <div className="bg-gray-50 p-6 rounded-lg border border-gray-200 text-left">
+                            <h2 className="text-xl font-semibold mb-3 text-gray-800">Instruções</h2>
+                            <ul className="text-left space-y-2 text-gray-600 list-disc list-inside">
+                                <li>A IA irá gerar <strong>180 questões</strong> originais e uma proposta de redação.</li>
+                                <li>O processo de geração pode levar <strong>alguns minutos</strong>. Por favor, aguarde.</li>
+                                <li>Você terá <strong>4 horas</strong> para completar a prova assim que ela for gerada.</li>
+                                <li>A sua sessão é local. Se fechar a aba, o progresso será perdido.</li>
+                            </ul>
+                        </div>
+                        {error && <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-lg">{error}</div>}
+                        <button onClick={handleStart} className="mt-10 bg-blue-600 text-white font-bold py-4 px-10 rounded-lg text-lg hover:bg-blue-700 transition-transform hover:scale-105 duration-300 shadow-lg">
+                             Gerar Novo Simulado com IA
+                         </button>
+                     </>
+                 ) : (
+                     <div className="mt-10">
+                         <div className="flex justify-center items-center">
+                            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                         </div>
+                         <p className="text-gray-600 mt-4 text-center animate-pulse">{loadingMessage}</p>
+                     </div>
+                 )}
+            </div>
+        </div>
+    );
+};
+
+// --- Componente de Gerenciamento do Simulador ---
+const Simulador = () => {
+    const [estadoSimulador, setEstadoSimulador] = useState('inicial'); // 'inicial', 'em_andamento', 'resultados'
+    const [questoes, setQuestoes] = useState([]);
+    const [resultados, setResultados] = useState(null);
+
+    const iniciarSimulado = (questoesGeradas) => {
+        setQuestoes(questoesGeradas.map((q, i) => ({...q, id: q.id || `q-${i}` }))); // Garante ID único
+        setEstadoSimulador('em_andamento');
+    };
+
+    const finalizarSimulado = (dadosFinais) => {
+        setResultados(dadosFinais);
+        setEstadoSimulador('resultados');
+    };
+
+    const reiniciar = () => {
+        setEstadoSimulador('inicial');
+        setQuestoes([]);
+        setResultados(null);
+    };
+
+    if (estadoSimulador === 'inicial') {
+        return <TelaInicialSimulador onStart={iniciarSimulado} />;
+    }
+    if (estadoSimulador === 'em_andamento') {
+        return <TelaSimulado questoes={questoes} onFinish={finalizarSimulado} />;
+    }
+    if (estadoSimulador === 'resultados') {
+        return <TelaResultados resultados={resultados} onRestart={reiniciar} temaRedacao={resultados.temaRedacao} textoRedacao={resultados.textoRedacao} />;
+    }
+    return <div>Carregando...</div>;
+}
+
+// --- Componente da Aba de Dashboard (Recriação do index.html) ---
+const DashboardControle = () => {
+    // Esta é uma recriação simplificada. Em uma app real, isso seria mais robusto.
+    const chartRef = useRef(null);
+    const chartInstance = useRef(null);
+    
+    useEffect(() => {
+        if (chartInstance.current) {
+            chartInstance.current.destroy();
+        }
+        const myChartRef = chartRef.current.getContext('2d');
+        chartInstance.current = new Chart(myChartRef, {
+            type: 'bar',
+            data: {
+                labels: ["Matemática", "Física", "Química", "Português", "Inglês"],
+                datasets: [{
+                    label: 'Proficiência (Exemplo)',
+                    data: [65, 59, 80, 81, 72],
+                    backgroundColor: 'rgba(59, 130, 246, 0.5)',
+                    borderColor: 'rgba(59, 130, 246, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options:{
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+
+        return () => {
+            if(chartInstance.current){
+                chartInstance.current.destroy();
+            }
+        }
+    }, []);
+
+    return (
+        <div className="p-4 md:p-8 bg-gray-100 min-h-screen">
+            <style>{`.card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); }`}</style>
+            <div className="max-w-7xl mx-auto">
+                <header className="mb-8">
+                    <h1 className="text-4xl font-bold text-slate-900 mb-2">Dashboard de Controle</h1>
+                    <p className="text-lg text-slate-600">Sua central de comando para a aprovação.</p>
+                </header>
+                <div className="card">
+                   <h2 className="text-2xl font-bold mb-4">Visão Geral da Proficiência</h2>
+                   <div className="relative h-96">
+                       <canvas ref={chartRef}></canvas>
+                   </div>
+                   <p className="text-sm text-center text-gray-500 mt-4">Este é um painel de exemplo. A funcionalidade completa de tracking de tópicos pode ser integrada aqui.</p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
+// --- Componente Raiz da Aplicação com Navegação ---
+export default function App() {
+    const [abaAtiva, setAbaAtiva] = useState('simulador'); // 'dashboard' ou 'simulador'
+
+    return (
+        <div className="min-h-screen bg-gray-100">
+            <nav className="bg-white shadow-md">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="flex items-center justify-between h-16">
+                         <div className="flex items-center">
+                            <TargetIcon className="h-8 w-8 text-blue-600"/>
+                            <span className="font-bold text-xl ml-2 text-gray-800">Missão ITA</span>
+                         </div>
+                         <div className="flex items-center space-x-4">
+                            <button onClick={() => setAbaAtiva('dashboard')} className={`px-4 py-2 text-sm font-medium rounded-md ${abaAtiva === 'dashboard' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}>
+                                Dashboard
+                            </button>
+                             <button onClick={() => setAbaAtiva('simulador')} className={`px-4 py-2 text-sm font-medium rounded-md ${abaAtiva === 'simulador' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}>
+                                Simulador IA
+                            </button>
+                         </div>
+                    </div>
+                </div>
+            </nav>
+            <main>
+                {abaAtiva === 'dashboard' && <DashboardControle />}
+                {abaAtiva === 'simulador' && <Simulador />}
+            </main>
+        </div>
+    )
+}
+
